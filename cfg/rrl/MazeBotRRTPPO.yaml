@@ -1,6 +1,6 @@
 defaults:
   - /task/MazeBot
-  - /planner/RRT
+  - /planner/PRM
   - /actor_critic/model
 
 name: MazeBotRRTPPO

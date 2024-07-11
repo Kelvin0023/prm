@@ -2,9 +2,7 @@ defaults:
   - rrl/MazeBotRRTPPO
   - override hydra/launcher: joblib
   - override hydra/job_logging: disabled
-#  - override hydra/launcher: submitit_slurm
-  # - override hydra/launcher: joblib
-  
+
 # algorithm to use (PPO, DAPG, RRL-RL, RRL-BC, RRL-BC-RL, RRL-DAPG)
 algo: 'PPO'
 
