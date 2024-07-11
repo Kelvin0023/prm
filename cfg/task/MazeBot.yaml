@@ -1,5 +1,3 @@
-
-
 name: MazeBot
 _target_: tasks.maze.mazebot.MazeBot
 
@@ -16,7 +14,7 @@ env:
 
   # RRL Task
   staggered_progress: False
-  maze: maze_lvl2_v2
+  maze: maze_a
 
   # Robot properties
   dof_pos_lim: 

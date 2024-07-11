@@ -78,6 +78,9 @@ class MazeBot(RRLTask):
             self.reset_state_buf = self.get_env_root_state()
             self.reset_state_dim = self.reset_state_buf.shape[1]
 
+        # Save the initial state for sampling nodes in PRM
+        self.init_sampled_states = self.reset_state_buf.clone()
+
         # Setup goal buffer
         # If goal is specified in the config, use that, else use the reset states
         if "goal" in self.cfg["env"][self.maze]:
@@ -383,20 +386,20 @@ class MazeBot(RRLTask):
         pass
 
     def sample_initial_nodes(self, select_style="naive", num_init_nodes=32):
-        print("Debug: reset_state_buf shape: ", self.reset_state_buf.shape)
+        print("Debug: reset_state_buf shape: ", self.init_sampled_states.shape)
         num_init_nodes = torch.tensor(list(range(num_init_nodes)))
         if select_style == "naive":
-            buf_idx = torch.randint_like(num_init_nodes, len(self.reset_state_buf))
-            states = self.reset_state_buf[buf_idx]
+            buf_idx = torch.randint_like(num_init_nodes, len(self.init_sampled_states))
+            states = self.init_sampled_states[buf_idx]
         elif select_style == "nearest":
             q_sample = self.sample_q(len(num_init_nodes))
             states = torch.zeros((len(num_init_nodes), 4), device=self.device)
             for i in range(len(num_init_nodes)):
                 u = np.random.uniform()
                 if u > self.start_state_bias:
-                    dist = torch.linalg.norm(self.reset_state_buf[:, :2] - q_sample[i, :], dim=1)
+                    dist = torch.linalg.norm(self.init_sampled_states[:, :2] - q_sample[i, :], dim=1)
                     nearest_idx = int(torch.argmin(dist))
-                    nearest_state = self.reset_state_buf[nearest_idx]
+                    nearest_state = self.init_sampled_states[nearest_idx]
                     states[i] = nearest_state
                 else:
                     states[i, 0], states[i, 1] = (
@@ -408,13 +411,13 @@ class MazeBot(RRLTask):
     def sample_close_nodes(self, node_set):
         sampled_nodes = []
         for node in node_set:
-            # random_idx = torch.randint(0, len(self.reset_state_buf), (1,)).item()
-            # sampled_nodes.append(self.reset_state_buf[random_idx][:2])
-            dist = self.compute_distances_in_goal(self.reset_state_buf, node)
+            # random_idx = torch.randint(0, len(self.init_sampled_states), (1,)).item()
+            # sampled_nodes.append(self.init_sampled_states[random_idx][:2])
+            dist = self.compute_distances_in_goal(self.init_sampled_states, node)
             close_idx = torch.where(dist < 0.2)[0]
             # Randomly select one of the close nodes
             random_idx = close_idx[torch.randint(0, len(close_idx), (1,)).item()]
-            sampled_nodes.append(self.reset_state_buf[random_idx])
+            sampled_nodes.append(self.init_sampled_states[random_idx])
 
         return sampled_nodes
 

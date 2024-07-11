@@ -1,7 +1,5 @@
 defaults:
   - /task/MazeBot
-  - /actor/MLP
-  - /critic/MLP
   - /planner/RRT
   - /actor_critic/model
 

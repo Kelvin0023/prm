@@ -1,4 +1,4 @@
-_target_: rrl.algo.trainer.Trainer
+_target_: algo.policy.trainer.Trainer
 
 network:
   actor_units: [512, 512, 256, 128]

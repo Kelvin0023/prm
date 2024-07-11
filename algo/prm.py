@@ -14,9 +14,11 @@ class PRM:
         self.device = device
 
         # PRM config
-        self.prm_samples_per_epoch = 2048
+        self.init_samples = 64
+        self.prm_samples_per_epoch = 2048 # 32
         assert self.env.num_envs % self.prm_samples_per_epoch == 0
-        self.envs_per_sample = self.env.num_envs // self.prm_samples_per_epoch
+        # self.envs_per_sample = self.env.num_envs // self.prm_samples_per_epoch
+        self.envs_per_sample = 1 # Only one environment per sample
         self.prm_rollout_len = 8
         self.prm_local_planner = "random"  # "random" or "policy
         self.visualize_prm = True
@@ -37,33 +39,34 @@ class PRM:
         self.sampled_actions = None
         self.node_distances_to_root = [0.0]
 
-    def runPRM(self):
+    def initPRM(self):
         self.env.enable_reset = False
 
         # Sample initial state in the task space
-        states = self.env.sample_initial_nodes(num_init_nodes=64) #(num_init_nodes=self.prm_samples_per_epoch)
+        states = self.env.sample_initial_nodes(num_init_nodes=self.init_samples)
         self.prm_q = states
         self.prm_states = states
 
-        for _ in range(self.prm_samples_per_epoch):
+        for _ in range(self.init_samples):
             self.prm_parents.append([])
             self.prm_children.append([])
 
-        steps = 0
-        while True:
-            # reset invalid buffer
-            self.invalid_buf[:] = 0.0
+    def runPRM(self):
+        # reset invalid buffer
+        self.invalid_buf[:] = 0.0
 
-            print("*** PRM step: ", steps, "***")
-            print("PRM states: ", self.prm_states.shape[0])
-            # Sample new nodes and perform collision check
-            self.sample_and_set()
-            self.env.refresh_tensors()
-            self.env.compute_obs()
-            # Rollout for k steps
-            self.plan_steps()
-            self.add_nodes()
-            steps += 1
+        # print("*** PRM step: ", steps, "***")
+        print("PRM states: ", self.prm_states.shape[0])
+        # Sample new nodes and perform collision check
+        self.sample_and_set()
+        self.env.refresh_tensors()
+        self.env.compute_obs()
+        # Rollout for k steps
+        self.plan_steps()
+        self.add_nodes()
+
+        # Update the reset distribution
+        self.env.set_reset_state_buf(self.prm_states)
 
 
     def sample_and_set(self):
