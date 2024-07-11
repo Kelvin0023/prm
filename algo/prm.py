@@ -1,179 +1,267 @@
-
-
-from collections import defaultdict
-import sys
-import math
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.patches import Rectangle
 import numpy as np
-from sklearn.neighbors import NearestNeighbors
-import shapely.geometry
-import argparse
-
-from .Dijkstra import Graph, dijkstra, to_array
-from .Utils import Utils
+import torch
 
 
-class PRMController:
-    def __init__(self, numOfRandomCoordinates, allObs, current, destination):
-        self.numOfCoords = numOfRandomCoordinates
-        self.coordsList = np.array([])
-        self.allObs = allObs
-        self.current = np.array(current)
-        self.destination = np.array(destination)
-        self.graph = Graph()
-        self.utils = Utils()
-        self.solutionFound = False
 
-    def runPRM(self, initialRandomSeed, saveImage=True):
-        seed = initialRandomSeed
-        # Keep resampling if no solution found
-        while(not self.solutionFound):
-            print("Trying with random seed {}".format(seed))
-            np.random.seed(seed)
+class PRM:
+    def __init__(self, cfg, env, model, obs_rms, state_rms, value_rms, device):
+        self.cfg = cfg
+        self.env = env
+        self.model = model
+        self.obs_rms = obs_rms
+        self.state_rms = state_rms
+        self.value_rms = value_rms
+        self.device = device
 
-            # Generate n random samples called milestones
-            self.genCoords()
+        # PRM config
+        self.prm_samples_per_epoch = 2048
+        assert self.env.num_envs % self.prm_samples_per_epoch == 0
+        self.envs_per_sample = self.env.num_envs // self.prm_samples_per_epoch
+        self.prm_rollout_len = 8
+        self.prm_local_planner = "random"  # "random" or "policy
+        self.visualize_prm = True
 
-            # Check if milestones are collision free
-            self.checkIfCollisonFree()
 
-            # Link each milestone to k nearest neighbours.
-            # Retain collision free links as local paths.
-            self.findNearestNeighbour()
+        self.prm_q = self.env.get_env_root_q()
+        self.prm_states = self.env.get_env_root_state()
+        self.prm_children = [[]]  # List of "list of children" (index) for each node
+        self.prm_parents = [[]]  # List of parent (index) of each node
+        self.prm_actions = torch.zeros((1, self.env.num_actions), device=self.device)  # store actions
+        self.prm_rewsum = torch.zeros((1, 1), device=self.device)
+        self.prm_pathlen = torch.ones((1, 1), device=self.device)
 
-            # Search for shortest path from start to end node - Using Dijksta's shortest path alg
-            self.shortestPath()
+        self.invalid_buf = torch.zeros(self.env.num_envs, device=self.device)
 
-            seed = np.random.randint(1, 100000)
-            self.coordsList = np.array([])
-            self.graph = Graph()
+        # Temporary variables for building tree
+        self.nearest_idx = [0] * self.prm_samples_per_epoch
+        self.sampled_actions = None
+        self.node_distances_to_root = [0.0]
 
-        if(saveImage):
-            plt.savefig("{}_samples.png".format(self.numOfCoords))
-        plt.show()
+    def runPRM(self):
+        self.env.enable_reset = False
 
-    def genCoords(self, maxSizeOfMap=100):
-        self.coordsList = np.random.randint(
-            maxSizeOfMap, size=(self.numOfCoords, 2))
-        # Adding begin and end points
-        self.current = self.current.reshape(1, 2)
-        self.destination = self.destination.reshape(1, 2)
-        self.coordsList = np.concatenate(
-            (self.coordsList, self.current, self.destination), axis=0)
+        # Sample initial state in the task space
+        states = self.env.sample_initial_nodes(num_init_nodes=64) #(num_init_nodes=self.prm_samples_per_epoch)
+        self.prm_q = states
+        self.prm_states = states
 
-    def checkIfCollisonFree(self):
-        collision = False
-        self.collisionFreePoints = np.array([])
-        for point in self.coordsList:
-            collision = self.checkPointCollision(point)
-            if(not collision):
-                if(self.collisionFreePoints.size == 0):
-                    self.collisionFreePoints = point
-                else:
-                    self.collisionFreePoints = np.vstack(
-                        [self.collisionFreePoints, point])
-        self.plotPoints(self.collisionFreePoints)
+        for _ in range(self.prm_samples_per_epoch):
+            self.prm_parents.append([])
+            self.prm_children.append([])
 
-    def findNearestNeighbour(self, k=5):
-        X = self.collisionFreePoints
-        knn = NearestNeighbors(n_neighbors=k)
-        knn.fit(X)
-        distances, indices = knn.kneighbors(X)
-        self.collisionFreePaths = np.empty((1, 2), int)
+        steps = 0
+        while True:
+            # reset invalid buffer
+            self.invalid_buf[:] = 0.0
 
-        for i, p in enumerate(X):
-            # Ignoring nearest neighbour - nearest neighbour is the point itself
-            for j, neighbour in enumerate(X[indices[i][1:]]):
-                start_line = p
-                end_line = neighbour
-                if(not self.checkPointCollision(start_line) and not self.checkPointCollision(end_line)):
-                    if(not self.checkLineCollision(start_line, end_line)):
-                        self.collisionFreePaths = np.concatenate(
-                            (self.collisionFreePaths, p.reshape(1, 2), neighbour.reshape(1, 2)), axis=0)
+            print("*** PRM step: ", steps, "***")
+            print("PRM states: ", self.prm_states.shape[0])
+            # Sample new nodes and perform collision check
+            self.sample_and_set()
+            self.env.refresh_tensors()
+            self.env.compute_obs()
+            # Rollout for k steps
+            self.plan_steps()
+            self.add_nodes()
+            steps += 1
 
-                        a = str(self.findNodeIndex(p))
-                        b = str(self.findNodeIndex(neighbour))
-                        self.graph.add_node(a)
-                        self.graph.add_edge(a, b, distances[i, j+1])
-                        x = [p[0], neighbour[0]]
-                        y = [p[1], neighbour[1]]
-                        plt.plot(x, y)
 
-    def shortestPath(self):
-        self.startNode = str(self.findNodeIndex(self.current))
-        self.endNode = str(self.findNodeIndex(self.destination))
+    def sample_and_set(self):
+        self.nearest_idx = torch.randint_like(torch.tensor(list(range(self.prm_samples_per_epoch))), len(self.prm_states))
 
-        dist, prev = dijkstra(self.graph, self.startNode)
+        chosen_node = self.prm_states[self.nearest_idx]
+        self.q_sample = self.env.sample_close_nodes(node_set=chosen_node)
+        # Check whether the new nodes lie in the free space or not
+        self.env.check_collision(self.q_sample)
 
-        pathToEnd = to_array(prev, self.endNode)
+        chosen_states = torch.zeros((self.env.num_envs, self.env.reset_state_dim), device=self.device)
 
-        if(len(pathToEnd) > 1):
-            self.solutionFound = True
-        else:
-            return
+        if hasattr(self.env, "goal"):
+            goals = torch.zeros_like(self.env.goal)
+        for i in range(self.prm_samples_per_epoch):
+            chosen_states[self.envs_per_sample * i : self.envs_per_sample * (i + 1)] = chosen_node[i]
+            if hasattr(self.env, "goal"):
+                goals[self.envs_per_sample * i : self.envs_per_sample * (i + 1)] = self.env.q_to_goal(self.q_sample[i])
+        self.env.set_env_states(chosen_states, torch.arange(self.env.num_envs, device=self.device))
+        if hasattr(self.env, "goal"):
+            self.env.set_goal(goals)
+        self.env.progress_buf[:] = 0
+        self.env.reset_buf[:] = 0
 
-        # Plotting shorest path
-        pointsToDisplay = [(self.findPointsFromNode(path))
-                           for path in pathToEnd]
+    def model_act(self, obs_dict, actions=None):
+        processed_obs = self.obs_rms(obs_dict["obs"])
+        processed_states = self.state_rms(obs_dict["states"])
+        input_dict = {"obs": processed_obs, "states": processed_states}
+        res_dict = self.model.act(input_dict, actions)
+        res_dict["values"] = self.value_rms(res_dict["values"], True)
+        return res_dict
 
-        x = [int(item[0]) for item in pointsToDisplay]
-        y = [int(item[1]) for item in pointsToDisplay]
-        plt.plot(x, y, c="blue", linewidth=3.5)
+    def plan_steps(self):
+        for k in range(self.prm_rollout_len):
+            obses = self.env.get_obs()
+            states = self.env.get_state()
 
-        pointsToEnd = [str(self.findPointsFromNode(path))
-                       for path in pathToEnd]
-        print("****Output****")
+            obs_dict = {"obs": obses, "states": states}
 
-        print("The quickest path from {} to {} is: \n {} \n with a distance of {}".format(
-            self.collisionFreePoints[int(self.startNode)],
-            self.collisionFreePoints[int(self.endNode)],
-            " \n ".join(pointsToEnd),
-            str(dist[self.endNode])
-        )
-        )
+            # Sample actions from policy or randomly and get value
+            actions = self.env.random_actions()
 
-    def checkLineCollision(self, start_line, end_line):
-        collision = False
-        line = shapely.geometry.LineString([start_line, end_line])
-        for obs in self.allObs:
-            if(self.utils.isWall(obs)):
-                uniqueCords = np.unique(obs.allCords, axis=0)
-                wall = shapely.geometry.LineString(
-                    uniqueCords)
-                if(line.intersection(wall)):
-                    collision = True
+            # Clamp sampled actions and step the environment
+            actions = torch.clamp(actions, -1.0, 1.0)
+
+            # # store intermediate obs and actions
+            # self.obs_buf[k] = obses
+            # self.act_buf[k] = actions
+            # self.states_buf[k] = states
+
+            self.env.set_actions(actions)
+            self.env.gym.simulate(self.env.sim)
+            self.env.refresh_tensors()
+            self.env.compute_obs()
+            self.env.compute_reward()
+
+            if not self.env.headless and self.env.force_render:
+                self.env.render()
+
+    def add_nodes(self):
+        """Add nodes based on q-sampled"""
+        # Collect the reached nodes
+        reached_states = self.env.get_env_states()
+        reached_q = self.env.get_env_q()
+        # Evaluate if the final states is valid (all the intermediate state must be valid too)
+        invalid = torch.logical_or(self.env.check_constraints(), self.invalid_buf)
+
+        # Grow tree if the states reached satisfy constraints
+        for sample_idx in range(self.prm_samples_per_epoch):
+            result = self._add_nodes_for_sample(reached_states, reached_q, invalid, sample_idx)
+            if result is not None:
+                state_parent, state_best = result
+                self._visualize_new_edges(state_parent, state_best)  # Debug visualization for MazeBot task only
+
+    def _add_nodes_for_sample(self, reached_states, reached_q, invalid, sample_idx):
+        i = sample_idx
+        # Compute distance to the sampled q-space goals
+        # batch = range(self.envs_per_sample * i, self.envs_per_sample * (i + 1))
+        batch = i
+        states_batch = reached_states[batch]
+        # actions_batch = self.sampled_actions[batch]
+        qbatch = reached_q[batch]
+
+        # # Compute distance to the sampled q-space goals
+        # dist = self.env.compute_distance(node=self.q_sample[i], node_set=qbatch)
+
+        # Find the invalid index in the batch
+        invalid_idx = invalid[batch].nonzero(as_tuple=False).squeeze(-1)
+
+        # Now, finally we grow the tree
+        # print("Adding nodes to tree")
+        # if len(invalid_idx) < len(invalid[batch]):
+        if len(invalid_idx) < 1:
+            # dist[invalid_idx] = torch.inf
+            # best_idx = torch.argmin(dist)
+            # qbest = qbatch[best_idx]
+            qbest = qbatch
+
+            # compute distance from qbest to other nodes in PRM
+            dist_to_qbest = self.env.compute_distance(node=qbest, node_set=self.prm_q)
+
+            if torch.min(dist_to_qbest) < 0.05:
+                closest_idx = torch.argmin(dist_to_qbest)
+                parent_idx = self.nearest_idx[i]
+
+                state_parent = self.prm_states[parent_idx].unsqueeze(0)
+                state_best = self.prm_states[closest_idx].unsqueeze(0)
+                self.prm_parents[closest_idx].append(parent_idx)
+
             else:
-                obstacleShape = shapely.geometry.Polygon(
-                    obs.allCords)
-                collision = line.intersects(obstacleShape)
-            if(collision):
-                return True
-        return False
+                parent_idx = self.nearest_idx[i]
+                self.prm_q = torch.cat([self.prm_q, qbest.unsqueeze(0)])
+                # state_best = states_batch[best_idx].unsqueeze(0)
+                state_best = states_batch.unsqueeze(0)
 
-    def findNodeIndex(self, p):
-        return np.where((self.collisionFreePoints == p).all(axis=1))[0][0]
+                state_parent = self.prm_states[parent_idx].unsqueeze(0)
+                self.prm_states = torch.cat([self.prm_states, state_best])
+                self.prm_parents.append([parent_idx])
+                self.prm_children.append([])
+                self.prm_children[parent_idx].append(len(self.prm_q) - 1)
 
-    def findPointsFromNode(self, n):
-        return self.collisionFreePoints[int(n)]
+        return state_parent, state_best
 
-    def plotPoints(self, points):
-        x = [item[0] for item in points]
-        y = [item[1] for item in points]
-        plt.scatter(x, y, c="black", s=1)
 
-    def checkCollision(self, obs, point):
-        p_x = point[0]
-        p_y = point[1]
-        if(obs.bottomLeft[0] <= p_x <= obs.bottomRight[0] and obs.bottomLeft[1] <= p_y <= obs.topLeft[1]):
-            return True
-        else:
-            return False
+    # def _add_nodes_for_sample(self, reached_states, reached_q, invalid, sample_idx):
+    #     i = sample_idx
+    #     # Compute distance to the sampled q-space goals
+    #     batch = range(self.envs_per_sample * i, self.envs_per_sample * (i + 1))
+    #     states_batch = reached_states[batch]
+    #     # actions_batch = self.sampled_actions[batch]
+    #     qbatch = reached_q[batch]
+    #
+    #     # Compute distance to the sampled q-space goals
+    #     dist = self.env.compute_distance(node=self.q_sample[i], node_set=qbatch)
+    #
+    #     # Find the invalid index in the batch
+    #     invalid_idx = invalid[batch].nonzero(as_tuple=False).squeeze(-1)
+    #
+    #     # Now, finally we grow the tree
+    #     # print("Adding nodes to tree")
+    #     if len(invalid_idx) < len(invalid[batch]):
+    #         dist[invalid_idx] = torch.inf
+    #         best_idx = torch.argmin(dist)
+    #         qbest = qbatch[best_idx]
+    #
+    #         # compute distance from qbest to other nodes in PRM
+    #         dist_to_qbest = self.env.compute_distance(node=qbest, node_set=self.prm_states)
+    #
+    #         if torch.min(dist_to_qbest) < 0.05:
+    #             closest_idx = torch.argmin(dist_to_qbest)
+    #             parent_idx = self.nearest_idx[i]
+    #
+    #             state_parent = self.prm_states[parent_idx].unsqueeze(0)
+    #             state_best = self.prm_states[closest_idx].unsqueeze(0)
+    #             # self.prm_states = torch.cat([self.prm_states, state_closest])
+    #             self.prm_parents[closest_idx].append(parent_idx)
+    #
+    #         else:
+    #             parent_idx = self.nearest_idx[i]
+    #             self.prm_q = torch.cat([self.prm_q, qbest.unsqueeze(0)])
+    #             state_best = states_batch[best_idx].unsqueeze(0)
+    #
+    #             state_parent = self.prm_states[parent_idx].unsqueeze(0)
+    #             self.prm_states = torch.cat([self.prm_states, state_best])
+    #             self.prm_parents.append([parent_idx])
+    #             self.prm_children.append([])
+    #             self.prm_children[parent_idx].append(len(self.prm_q) - 1)
+    #
+    #     return state_parent, state_best
 
-    def checkPointCollision(self, point):
-        for obs in self.allObs:
-            collision = self.checkCollision(obs, point)
-            if(collision):
-                return True
-        return False
+    def _visualize_new_edges(self, state_parent, state_best):
+        """
+        Debug visualization: Draw edge for visualization (works only for maze env)
+        """
+
+        task_name = self.env.__class__.__name__
+        if task_name == "MazeBot" and not self.env.headless and self.visualize_prm:
+            p = state_best[0].cpu().numpy()
+            parent = state_parent[0].cpu().numpy()
+
+            # draw edge
+            edge = [parent[0], parent[1], 0.01, p[0], p[1], 0.01]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, edge, [0.5, 0.5, 0.5])
+            # draw "+" marker for the new node
+            hline = [p[0] - 0.01, p[1], 0.01, p[0] + 0.01, p[1], 0.01]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, hline, [1, 1, 0])
+            vline = [p[0], p[1] - 0.01, 0.01, p[0], p[1] + 0.01, 0.01]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, vline, [1, 1, 0])
+
+        if task_name == "Ant" and not self.env.headless and self.visualize_prm:
+            p = state_best[0].cpu().numpy()
+            parent = state_parent[0].cpu().numpy()
+
+            # draw edge
+            edge = [parent[0], parent[1], 0.1, p[0], p[1], 0.1]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, edge, [0.5, 0.5, 0.5])
+            # draw "+" marker for the new node
+            hline = [p[0] - 0.1, p[1], 0.1, p[0] + 0.1, p[1], 0.1]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, hline, [1, 1, 0])
+            vline = [p[0], p[1] - 0.1, 0.1, p[0], p[1] + 0.1, 0.1]
+            self.env.gym.add_lines(self.env.viewer, self.env.envs[0], 1, vline, [1, 1, 0])

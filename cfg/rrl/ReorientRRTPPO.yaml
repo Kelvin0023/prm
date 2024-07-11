@@ -1,0 +1,40 @@
+defaults:
+  - /task/Reorient
+  - /actor/MLP
+  - /critic/MLP
+  - /planner/RRT
+  - /actor_critic/model
+
+name: ReorientRRTPPO
+_target_: rrl.rrl.RRL
+
+task:
+  env:
+    envSpacing: 2.0
+
+
+# Value and advantage estimation
+normalize_input: True
+normalize_value: True
+value_bootstrap: True
+normalize_advantage: True # not respected, essentially hardcoded to true in ExperienceReplay
+gamma: 0.99
+tau: 0.95
+
+
+# Rollouts horizon
+play_horizon_length: 8
+
+
+# snapshot setting
+save_best_after: 5
+save_frequency: 500
+max_agent_steps: 30_000_000_000
+eval_frequency: 20
+
+# lambda value for RRL-DAPG
+lambda_1: 0.999  # decay rate
+lambda_1_k: 1.0  # start value for lambda_1
+
+saved_tree: False
+tree_file: '/home/jkai/Downloads/AR/rrl/AR-v2.pkl'

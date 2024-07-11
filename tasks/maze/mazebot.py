@@ -301,23 +301,29 @@ class MazeBot(RRLTask):
     """ RRT methods """
 
     def sample_q(self, num_samples):
+        """ Sampling space now contains both position and velocity"""
+        # Sample random positions
         u = torch_rand_float(0, 1.0, (num_samples, 2), device=self.device)
         w_max = to_torch([self.x_dof_lim[1], self.y_dof_lim[1]])
         w_min = to_torch([self.x_dof_lim[0], self.y_dof_lim[0]])
         q = (w_max - w_min) * u + w_min
-        return q
+        # Sample random velocities
+        u_dot = torch_rand_float(0, 0.5, (num_samples, 2), device=self.device)
+        q_dot = u_dot - 0.25
+        samples = torch.cat([q, q_dot], dim=1)
+        return samples
 
     def get_env_root_q(self):
-        return torch.tensor(self.dof_pos_start, device=self.device).unsqueeze(0)
-
-    def get_env_q(self):
-        return self.dof_pos.detach().clone()
-
-    def get_env_root_state(self):
         return torch.tensor([self.dof_pos_start[0], self.dof_pos_start[1], 0, 0], device=self.device).unsqueeze(0)
 
-    def get_env_states(self):
+    def get_env_q(self):
         return torch.cat([self.dof_pos.detach().clone(), self.dof_vel.detach().clone()], dim=1)
+
+    def get_env_root_state(self):
+        return self.get_env_root_q()
+
+    def get_env_states(self):
+        return self.get_env_q()
 
     def set_env_states(self, states, env_idx: torch.Tensor):
         """Sets the state of the envs specified by env_idx"""
@@ -359,13 +365,59 @@ class MazeBot(RRLTask):
     def compute_distances_in_goal(self, rrt_states, goal=None):
         node_pos = rrt_states[:, 0:2].view(-1, 2)  # extract pos
         goal_pos = node_pos[0].unsqueeze(0).repeat(len(node_pos), 1) if goal is None else goal
-        distances = torch.linalg.norm(node_pos - goal_pos, dim=1)
+        distances = torch.linalg.norm(node_pos - goal_pos[:2], dim=1)
         return distances
 
     def compute_distance(self, node, node_set):
         """ computes distance from node to each element in node set """
-        dist = torch.linalg.norm(node_set - node, dim=1)
+        # Position distance
+        pos_dist = 1.0 * torch.linalg.norm(node_set[:, :2] - node[:2], dim=1)
+        # Velocity distance
+        vel_dist = 0.05 * torch.linalg.norm(node_set[:, 2:4] - node[2:4], dim=1)
+        dist = pos_dist + vel_dist
         return dist
+
+    # PRM methods
+
+    def check_collision(self, q_sample):
+        pass
+
+    def sample_initial_nodes(self, select_style="naive", num_init_nodes=32):
+        print("Debug: reset_state_buf shape: ", self.reset_state_buf.shape)
+        num_init_nodes = torch.tensor(list(range(num_init_nodes)))
+        if select_style == "naive":
+            buf_idx = torch.randint_like(num_init_nodes, len(self.reset_state_buf))
+            states = self.reset_state_buf[buf_idx]
+        elif select_style == "nearest":
+            q_sample = self.sample_q(len(num_init_nodes))
+            states = torch.zeros((len(num_init_nodes), 4), device=self.device)
+            for i in range(len(num_init_nodes)):
+                u = np.random.uniform()
+                if u > self.start_state_bias:
+                    dist = torch.linalg.norm(self.reset_state_buf[:, :2] - q_sample[i, :], dim=1)
+                    nearest_idx = int(torch.argmin(dist))
+                    nearest_state = self.reset_state_buf[nearest_idx]
+                    states[i] = nearest_state
+                else:
+                    states[i, 0], states[i, 1] = (
+                        self.dof_pos_start[0],
+                        self.dof_pos_start[1],
+                    )
+        return states
+
+    def sample_close_nodes(self, node_set):
+        sampled_nodes = []
+        for node in node_set:
+            # random_idx = torch.randint(0, len(self.reset_state_buf), (1,)).item()
+            # sampled_nodes.append(self.reset_state_buf[random_idx][:2])
+            dist = self.compute_distances_in_goal(self.reset_state_buf, node)
+            close_idx = torch.where(dist < 0.2)[0]
+            # Randomly select one of the close nodes
+            random_idx = close_idx[torch.randint(0, len(close_idx), (1,)).item()]
+            sampled_nodes.append(self.reset_state_buf[random_idx])
+
+        return sampled_nodes
+
 
 def states_from_path(path: np.ndarray, delta=0.01, device="cuda:0"):
     delta = 0.01

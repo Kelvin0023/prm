@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 import matplotlib.pyplot as plt
 
@@ -143,6 +144,7 @@ if __name__ == "__main__":
 
     npfile = "tasks/maze/assets/reset_states/{}.npy".format(name)
     pngfile = "tasks/maze/assets/reset_states/{}.png".format(name)
+    os.makedirs(os.path.dirname(npfile), exist_ok=True)
     state = generate(maze, nsample=10000)
     state = state.astype(dtype=np.float32)
 

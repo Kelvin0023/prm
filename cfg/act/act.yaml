@@ -1,0 +1,5 @@
+num_epochs: 2000
+#ckpt_dir: ./data/outputs/rrl/rrl_2021_09_29_15_00_00/
+episode_len: 400
+lr: 1e-5
+temporal_agg: True

@@ -1,0 +1,85 @@
+defaults:
+  - IHM.yaml
+
+name: ArbitraryReorient
+
+_target_: tasks.ihm.arbitrary_reorient.ArbitraryReorient
+#_target_: tasks.ihm.dex_reach.DexReach
+
+physics_engine: physx
+
+sim:
+  gravity: [0.0, 0.0, -9.81]
+
+env:
+  episodeLength: 300
+  feedbackDims:
+    goal: 4
+    object_orientation: 4
+    object_pos: 3
+    desired_rot_axis: 3
+    desired_rot_angle: 1
+  feedbackObs: [ "hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "goal", "object_orientation", "object_pos" ]
+#  feedbackObs: [ "hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "desired_rot_axis", "desired_rot_angle" ]
+  feedbackState: [ "hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_state", "hand_joint_torque", "ftip_contact_pos", "goal" ]
+#  feedbackState: [ "hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_state", "hand_joint_torque", "ftip_contact_pos", "desired_rot_axis", "desired_rot_angle"  ]
+
+  velocityLimit: 1
+  effortLimit: 4
+  stiffness: 30
+  damping: 5
+  mass: 0.12
+  COM: [ 0.0, 0.0, 0.0 ]
+
+  # Success criteria for reorientation
+  angle_threshold: 0.4 # angular tolerance for successful reorientation
+  joint_vel_threshold: 0.8 # Tao uses 0.25 but we have more DOF than they do
+  object_vel_threshold: 0.04
+  object_angvel_threshold: 0.5
+  req_valid_contact: True # all contacts must be on the inside of fingers for task success
+  req_ncon_lim: True # must be > ncon_min contacts for task success
+  sample_rand_targets: True
+  target_displacement_range: [2.0, 3.14] # displacement from initial state to target state
+
+  enableTactileForceNoise: True
+  enableObjConvexDecomp: True
+
+  reset:
+    terminate_upon_success: True
+    minObjectHeight: 0.2 #0.225
+    maxObjectHeight: 0.3 #0.275
+    xyObjPosLim: 0.05 #0.03
+    obj_xyz_lower_lim: [ -0.05, -0.05, 0.2 ] #[ -0.03, -0.03, 0.225 ]
+    obj_xyz_upper_lim: [ 0.05, 0.05, 0.3 ] #[ 0.03, 0.03, 0.275 ]
+    obj_tilt_lim_cos: 0.95 # only considered if an axis other than 3 is specified
+    ftip_on_side_constr: False
+    ftip_on_side_constr_tolerance: 0.04
+    ftip_z_constraint_kpt: False # constrain fingertip height based on transformed keypoints
+    nconlim: False
+    contact_loc_constraint: False
+
+  dist:
+    joint_pos_weight: 1.0
+    obj_pos_weight: 0.1
+    obj_quat_weight: 0.5
+
+  use_saved_reset_states: False
+  saved_reset_states_file: AR-v1-biased.npy
+#  saved_reset_states_file: tasks/ihm/assets/grasps/Reorient-RP-100000.npy
+#  saved_reset_states_file: tasks/ihm/assets/grasps/cube_reorient_tree_10_9_grasps.npy
+#  saved_reset_states_file: tasks/ihm/assets/grasps/dex_reach_cube1k.npy
+#  saved_reset_states_file: tasks/ihm/assets/grasps/10x8x8x4_L_10_8_reorient_tree_grasps.npy
+#  saved_reset_states_file: tasks/ihm/assets/grasps/13x6_cuboid_reorient_tree_10_23_gflip_grasps.npy
+  action_scale: 0.1
+
+  reward:
+    # sparse reward
+    taskCompletionReward: 800.
+    # oob penalty
+    outOfBoundsPen: 0.0
+    delta_clip: 0.02 # how much to clip change in displacement (ignored if dense_rew_type is 'abs')
+    # ftip-object displacement pen
+    ftip_obj_disp_pen: 0.0
+    nconpen: 1.0 # scalar penalty applied when ncon < ncon_min
+    obj_position_pen: 1.0 # penalty for object position deviation from default
+    contact_loc_pen: 1.0 # penalty for contact on back of finger

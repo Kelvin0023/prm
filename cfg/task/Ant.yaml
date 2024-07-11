@@ -1,0 +1,166 @@
+name: Ant
+_target_: tasks.locomotion.ant.Ant
+
+physics_engine: physx
+
+env:
+  numEnvs: ${resolve_default:16384,${....num_envs}}
+  envSpacing: 50
+  episodeLength: 300
+  enableDebugVis: False
+
+  clipActions: 1.0
+
+  powerScale: 5.0 # 15.0
+  velocityLimit: 1
+  effortLimit: 4
+  stiffness: 10 # no longer used since the kp and kd are set in the nv_ant.xml
+  damping: 2 # no longer used since the kp and kd are set in the nv_ant.xml
+  controlFrequencyInv: 1 # 60 Hz
+
+  # reward parameters
+  headingWeight: 0.5
+  upWeight: 0.1
+
+  # cost parameters
+  actionsCost: 0.005
+  energyCost: 0.05
+  dofVelocityScale: 0.2
+  contactForceScale: 0.1
+  jointsAtLimitCost: 0.1
+  deathCost: -200.0
+  terminationHeight: 0.36 #0.31
+  z_limit: [0.37, 0.40]
+
+  plane:
+    staticFriction: 10.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+  asset:
+    assetFileName: "mjcf/nv_ant.xml"
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+  maze: maze_b
+
+  dof_pos_lim:
+    x: null
+    y: null
+  dof_vel_lim: 100
+  use_saved_reset_states: True
+
+  maze_lvl0:
+    dof_pos_lim:
+      x: [ -5, 5 ]
+      y: [ -5, 5 ]
+    dof_pos_start: [ -4, -4 ]
+    goal: [ 4, 4 ]
+    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_lvl0.npy
+
+  maze_lvl1_v2:
+    dof_pos_lim:
+      x: [ -5, 10 ]
+      y: [ -5, 5 ]
+    dof_pos_start: [ -4, -4 ]
+    goal: [ 9, 0.0 ]
+    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_lvl1_v2.npy
+
+  maze_lvl2_v2:
+    dof_pos_lim:
+      x: [ -5, 0 ]
+      y: [ -7, 7 ]
+    dof_pos_start: [ -4, -4 ]
+    goal: [ 9, 0.0 ]
+    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_lvl2_v2.npy
+
+  maze_a:
+    dof_pos_lim:
+      x: [ -12, 12 ]
+      y: [ -12, 12 ]
+    dof_pos_start: [ 0.0, 0.0 ]
+    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_a.npy
+
+  maze_b:
+    dof_pos_lim:
+      x: [ -9, 9 ]
+      y: [ -9, 9 ]
+    dof_pos_start: [ 0.0, 0.0 ]
+#    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_b.npy
+    saved_reset_states_file: tasks/locomotion/assets/reset_distribution/AntMaze_b-RP-20000.npy
+
+  maze_c:
+    dof_pos_lim:
+      x: [ -9, 9 ]
+      y: [ -9, 9 ]
+    dof_pos_start: [ 0.0, 0.0 ]
+    saved_reset_states_file: tasks/locomotion/assets/reset_states/maze_c.npy
+
+sim:
+  dt: 0.0166 # 1/60 s
+  substeps: 3
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${....pipeline},"gpu"}
+  gravity: [ 0.0, 0.0, -9.81 ]
+  physx:
+    num_threads: 4
+    solver_type: 1
+    use_gpu: ${contains:"cuda",${.....sim_device}} # set to False to run on CPU
+    num_position_iterations: 8
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 1000.0
+    default_buffer_size_multiplier: 5.0
+    max_gpu_contact_pairs: 8388608 # 8*1024*1024
+    num_subscenes: 0
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
+
+reward_type: sparse
+reset_at_goal: True
+bonus_at_goal: True
+reset_select_style: naive  #nearest
+start_state_bias: 0
+at_goal_threshold: 0.2
+
+task:
+  randomize: False
+  randomization_params:
+    # specify which attributes to randomize for each actor type and property
+    frequency: 600   # Define how many environment steps between generating new randomizations
+    observations:
+      range: [ 0, .002 ] # range for the white noise
+      operation: "additive"
+      distribution: "gaussian"
+    actions:
+      range: [ 0., .02 ]
+      operation: "additive"
+      distribution: "gaussian"
+    actor_params:
+      ant:
+        color: True
+        rigid_body_properties:
+          mass:
+            range: [ 0.5, 1.5 ]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
+        dof_properties:
+          damping:
+            range: [ 0.5, 1.5 ]
+            operation: "scaling"
+            distribution: "uniform"
+          stiffness:
+            range: [ 0.5, 1.5 ]
+            operation: "scaling"
+            distribution: "uniform"
+          lower:
+            range: [ 0, 0.01 ]
+            operation: "additive"
+            distribution: "gaussian"
+          upper:
+            range: [ 0, 0.01 ]
+            operation: "additive"
+            distribution: "gaussian"

@@ -1,0 +1,57 @@
+defaults:
+  - rrl/MazeBotRRTPPO
+  - override hydra/launcher: joblib
+  - override hydra/job_logging: disabled
+#  - override hydra/launcher: submitit_slurm
+  # - override hydra/launcher: joblib
+  
+# algorithm to use (PPO, DAPG, RRL-RL, RRL-BC, RRL-BC-RL, RRL-DAPG)
+algo: 'PPO'
+
+# if set to positive integer, overrides the default number of environments
+num_envs: 16384
+
+# seed - set to -1 to choose random seed
+seed: 0
+# set to True for deterministic performance
+torch_deterministic: False
+
+# set the maximum number of learning iterations to train for. overrides default per-environment setting
+max_iterations: ''
+
+## Device config
+gpu: '0'
+
+
+pipeline: 'gpu'
+# device for running physics simulation
+sim_device: 'cuda:0'
+# device to run RL
+rl_device: 'cuda:0'
+graphics_device_id: 0
+
+headless: True
+
+checkpoint: ''
+
+test: False
+
+hydra:
+  run: 
+      dir: ./data/outputs/${rrl.task.name}_${now:%Y_%m_%d_%H_%M_%S}/
+  sweep:
+    dir: ./data/multirun/${rrl.task.name}_${now:%Y_%m_%d_%H_%M_%S}
+    subdir: ${hydra.job.override_dirname}
+  job:
+    config:
+      override_dirname:
+        kv_sep: '_'
+        item_sep: '_'
+        exclude_keys:
+          - seed
+          - gpu
+          - train
+          - experiment
+  launcher:
+      # n_jobs has to be set to 1, otherwise the launcher will fail for subsequent runs
+      n_jobs: 1

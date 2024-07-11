@@ -1,0 +1,111 @@
+name: InHandManipulation
+
+_target_: tasks.ihm.ihm.IHM
+
+# if given, will override the device setting in gym.
+env:
+  numEnvs: ${resolve_default:16384,${....num_envs}}
+  object: cube
+  default_hand_joint_pos: [0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45]
+  #  9cm cube: [0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45]
+  #  10cm cube: [0, 0.25, 0.3, 0, 0.25, 0.3, 0, 0.25, 0.3, 0, 0.25, 0.3, 0, 0.25, 0.3]
+  #  13x6_cuboid: [ 0, 0.05, 0.58, 0.15, 0.42, 0.25, -0.05, -0.03, 0.82, 0.05, -0.03, 0.82, -0.15, 0.42, 0.25 ]
+  #  10x8x8x4_L: [ 0, 0.32, 0.48, -0.1, -0.05, 0.78, -0.2, 0.3, 0.5, 0.18, -0.1, 0.88, 0.1, -0.05, 0.9 ]
+  default_object_pos: [0, 0, 0.245]
+#  [0, 0, 0.24]  # 10cm cube
+  # Default object orientation can be specified with euler angles or quaternion. If default_object_euler is provided
+  # then it takes precedence.
+  default_object_euler: [0, 0, 0]
+  default_object_quat: [0, 0, 0, 1]
+  friction_coefficients: [1, 0.01, 0.001]
+  feedbackDims:
+    hand_joint_pos: 15
+    hand_joint_target: 15
+    ftip_contact_bool: 5
+    ftip_contact_force: 15
+    object_state: 13
+    hand_joint_torque: 15
+    ftip_contact_pos: 15
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_force"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_state", "hand_joint_torque", "ftip_contact_pos"]
+  rotationAxis: 2 # 0: X, 1: Y, 2: Z
+  envSpacing: 0.75
+  episodeLength: 512
+  enableDebugVis: False
+  aggregateMode: 1
+  controlFrequencyInv: 1
+  clipObservations: 5.0
+  clipActions: 1.0
+  stiffness: 30
+  damping: 5
+  mass: 0.12
+  COM: [ 0.0, 0.0, 0.0 ]
+  actionScale: [ 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, ]
+  enableTactileForceNoise: False
+  enableObjConvexDecomp: False
+  enableForcePertubation: True
+  pertForceLim: 0.1 #0.5
+  pertTorqueLim: 0.02 # 0.1
+  perturbStepDuration: 40 # 2 second application of force
+  perturbPeriod: 120 # apply perturbation every 6 seconds
+
+  hand_joint_lower_lim: [ -0.7, -0.39269908169, 0.0001 ]  # [ -0.7, -0.8, 0.0001 ]
+  hand_joint_upper_lim: [ 0.7, 0.5, 1 ] # [ 0.7, 0.8, 1.8 ]
+  wMax: [0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.02, 0.02, 0.01, 1.57, 1.57, 3.1415926]
+  wMin: [-0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.02, -0.02, -0.01, -1.57, -1.57, -3.1415926]
+  wUpperLim: [0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.7, 0.5, 1.0, 0.02, 0.02, 0.01, 0.2, 0.2, 3.1415926]
+  wLowerLim: [-0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.7, -0.39269908169, 0.0001, -0.02, -0.02, -0.01, -0.2, -0.2, -3.1415926]
+
+#  use_saved_reset_states: True
+#  saved_reset_states_file: cache/cube1k.npy
+  action_scale: 0.1
+
+  reward:
+    angVelClipMax: 0.4
+    angVelClipMin: -0.5
+    tiltMaxCos: 0 # 0.5 radian
+    rotationRewardScale: 1
+    alignAxisRewardScale: -0.1
+    objectLinVelPenaltyScale: -0
+    poseDiffPenaltyScale: -0.
+    torquePenaltyScale: -0.1
+    workPenaltyScale: -2.0
+
+  reset:
+    minObjectHeight: 0.22
+    maxObjectHeight: 0.26
+    xyObjPosLim: 0.03
+    objTiltLimCos: 0.5
+    obj_xyz_lower_lim: [ -0.03, -0.03, 0.22 ]
+    obj_xyz_upper_lim: [ 0.03, 0.03, 0.26 ]
+
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+sim:
+  dt: 0.05
+  substeps: 3
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${....pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: 4
+    solver_type: 1
+    use_gpu: ${contains:"cuda",${.....sim_device}} # set to False to run on CPU
+    num_position_iterations: 8
+    num_velocity_iterations: 0
+    max_gpu_contact_pairs: 8388608 # 8*1024*1024
+    num_subscenes: 0
+    contact_offset: 0.002
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 1000.0
+    default_buffer_size_multiplier: 5.0
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+
+    # contact_offset of 0.002 m and rest_offset of 0.0 m seem appropriate.
+    # contact_collection is set to CC_ALL_SUBSTEPS
+
+
+viewer: all # all or one

@@ -1,0 +1,4 @@
+defaults:
+  - /sim/physx
+
+physics_engine: 'physx'

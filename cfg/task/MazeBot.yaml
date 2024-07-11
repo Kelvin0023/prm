@@ -1,0 +1,88 @@
+
+
+name: MazeBot
+_target_: tasks.maze.mazebot.MazeBot
+
+env:
+  numEnvs: ${resolve_default:16384,${....num_envs}}
+  envSpacing: 4.0
+  episodeLength: 100
+  enableDebugVis: False
+  aggregateMode: 1
+  controlFrequencyInv: 1
+  clipActions: 1.0
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+  # RRL Task
+  staggered_progress: False
+  maze: maze_lvl2_v2
+
+  # Robot properties
+  dof_pos_lim: 
+    x: null
+    y: null
+  dof_vel_lim: 100
+  use_saved_reset_states: True
+  saved_reset_states_file: ""
+
+  maze_lvl0:
+    dof_pos_lim:
+      x: [-0.5,0.5]
+      y: [-0.5,0.5]
+    dof_pos_start: [-0.4, -0.4]
+    goal: [0.4, 0.4]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_lvl0.npy
+
+  maze_lvl1_v2:
+    dof_pos_lim:
+      x: [-0.5, 1.0]
+      y: [-0.5, 0.5]
+    dof_pos_start: [-0.4, -0.4]
+    goal: [0.9, 0.0]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_lvl1_v2.npy
+
+  maze_lvl2_v2:
+    dof_pos_lim:
+      x: [-0.5,1.0]
+      y: [-0.7,0.7]
+    dof_pos_start: [-0.4, -0.4]
+    goal: [0.9, 0.0]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_lvl2_v2.npy
+
+  maze_a:
+    dof_pos_lim:
+      x: [ -1.2,1.2 ]
+      y: [ -1.2,1.2 ]
+    dof_pos_start: [0.0, 0.0]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_a.npy
+
+  maze_b:
+    dof_pos_lim:
+      x: [-0.9,0.9]
+      y: [-0.9,0.9]
+    dof_pos_start: [0.0, 0.0]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_b.npy
+
+  maze_c:
+    dof_pos_lim:
+      x: [ -1.2,1.2 ] #x: [-0.9,0.9]
+      y: [ -1.2,1.2 ] #y: [-0.9,0.9]
+    dof_pos_start: [0.0, 0.0]
+    dof_pos_start_2: [0.8, 0.0]
+    dof_pos_start_3: [-0.8, 0.0]
+    saved_reset_states_file: tasks/maze/assets/reset_states/maze_c.npy
+
+reward_type: dense
+reset_at_goal: False
+bonus_at_goal: True
+reset_select_style: nearest
+start_state_bias: 0
+reset_state_noise: [0, 0, 0, 0]
+success_threshold: 0.05
+at_goal_threshold: 0.1 
+
+
+defaults:
+  - default_task
+
