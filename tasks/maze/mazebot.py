@@ -7,6 +7,7 @@ from isaacgym.torch_utils import *
 from tasks.rrl_task import RRLTask
 from utils.torch_jit_utils import tensor_clamp, to_torch
 from utils.misc import AverageScalarMeter
+from tasks.maze.gen_maze_states import MazeA, MazeB, MazeC, MazeLvl0, MazeLvl1V2, MazeLvl2V2, generate
 
 
 class MazeBot(RRLTask):
@@ -37,12 +38,24 @@ class MazeBot(RRLTask):
         self.dof_pos_lim = cfg["env"][self.maze]["dof_pos_lim"]
         self.x_dof_lim = self.dof_pos_lim["x"]
         self.y_dof_lim = self.dof_pos_lim["y"]
-
         self.dof_pos_start = cfg["env"][self.maze]["dof_pos_start"]
         # set the file so that the reset states are loaded from the correct file in _post_init()
         self.cfg["env"]["saved_reset_states_file"] = self.cfg["env"][self.maze]["saved_reset_states_file"]
-
         print(f'Using {self.cfg["env"]["saved_reset_states_file"]}')
+
+        # Create Maze class object (to sample collision-free states in the PRM algorithm)
+        if self.maze == "maze_lvl0":
+            self.maze_object = MazeLvl0()
+        elif self.maze == "maze_lvl1_v2":
+            self.maze_object = MazeLvl1V2()
+        elif self.maze == "maze_lvl2_v2":
+            self.maze_object = MazeLvl2V2()
+        elif self.maze == "maze_a":
+            self.maze_object = MazeA()
+        elif self.maze == "maze_b":
+            self.maze_object = MazeB()
+        elif self.maze == "maze_c":
+            self.maze_object = MazeC()
 
         # set reset and reward params
         self.state_dim = 4
@@ -78,9 +91,6 @@ class MazeBot(RRLTask):
             self.reset_state_buf = self.get_env_root_state()
             self.reset_state_dim = self.reset_state_buf.shape[1]
 
-        # Save the initial state for sampling nodes in PRM
-        self.init_sampled_states = self.reset_state_buf.clone()
-
         # Setup goal buffer
         # If goal is specified in the config, use that, else use the reset states
         if "goal" in self.cfg["env"][self.maze]:
@@ -103,20 +113,6 @@ class MazeBot(RRLTask):
         self.success = torch.zeros_like(self.reset_buf)
         self.success_rate = AverageScalarMeter(100)
         self.extras["success_rate"] = 0.0
-
-        self._setup_rrt_config()
-
-    def _setup_rrt_config(self):
-        # create sim state map for parsing states
-        self.state_space_map = {
-            "pos": (0, 2),
-            "vel": (2, 4),
-        }
-        self.sample_space_map = {
-            "pos": (0, 2),
-        }
-        self.goal_map = (2, 4)
-        self.selected_goal_map = (0, 2)
 
     def create_sim(self):
         self.dt = self.cfg["sim"]["dt"]
@@ -213,20 +209,10 @@ class MazeBot(RRLTask):
         self.rew_buf = reward
 
     def compute_reward_from_states(self, state, prev_state=None):
-        # state = state.detach().clone()
-        # pos = state[0, :2].view(-1, 1)
-        # dist = torch.linalg.norm(pos - self.goals, dim=1)
-        # if self.reward_type == "dense":
-        #     reward = - dist**2 + (dist < 0.1) * self.bonus_at_goal
-        # elif self.reward_type == "sparse":
-        #     reward = (dist < 0.1) * 1.0
-        # reward = reward[0]
         return 0.0
 
-    def check_constraints(self):
-        return torch.zeros_like(self.reset_buf)
-
     def check_termination(self):
+        """ Check sample space constraints """
         reset = torch.zeros_like(self.reset_buf)
         if self.reset_at_goal:
             dist = torch.linalg.norm(self.dof_pos - self.goal, dim=1)
@@ -286,13 +272,7 @@ class MazeBot(RRLTask):
 
         if not self.headless:
             pass
-            # self.gym.clear_lines(self.viewer)
-            # for state in states:
-            #     p = state.squeeze(0).cpu().numpy()
-            #     self.gym.add_lines(self.viewer, self.envs[0], 1, [p[0]-0.01, p[1], 0.01, p[0] + 0.01, p[1], 0.01], [0, 0, 1])
-            #     self.gym.add_lines(self.viewer, self.envs[0], 1, [p[0], p[1]- 0.01, 0.01, p[0], p[1] + 0.01, 0.01], [0, 0, 1])
 
-            # self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
                 g = self.goal[i].cpu().numpy()
                 draw_plus(self.gym, self.viewer, self.envs[i], g)
@@ -301,7 +281,7 @@ class MazeBot(RRLTask):
         self.reset_buf[env_idx] = 0.0
         self.progress_buf[env_idx] = 0.0
 
-    """ RRT methods """
+    """ Sampling-based planner methods """
 
     def sample_q(self, num_samples):
         """ Sampling space now contains both position and velocity"""
@@ -310,27 +290,32 @@ class MazeBot(RRLTask):
         w_max = to_torch([self.x_dof_lim[1], self.y_dof_lim[1]])
         w_min = to_torch([self.x_dof_lim[0], self.y_dof_lim[0]])
         q = (w_max - w_min) * u + w_min
-        # Sample random velocities
+        # Sample random velocities in the range [-0.25, 0.25]
         u_dot = torch_rand_float(0, 0.5, (num_samples, 2), device=self.device)
         q_dot = u_dot - 0.25
         samples = torch.cat([q, q_dot], dim=1)
         return samples
 
     def get_env_root_q(self):
+        """ Returns the default q_state (root q_state) of the environment """
         return torch.tensor([self.dof_pos_start[0], self.dof_pos_start[1], 0, 0], device=self.device).unsqueeze(0)
 
     def get_env_q(self):
+        """ Returns the current q_state of the environment """
         return torch.cat([self.dof_pos.detach().clone(), self.dof_vel.detach().clone()], dim=1)
 
     def get_env_root_state(self):
+        """ Returns the default state of the environment """
+        # In this case, the state is the same as the q_state
         return self.get_env_root_q()
 
     def get_env_states(self):
+        """ Returns the current state of the environment """
+        # In this case, the state is the same as the q_state
         return self.get_env_q()
 
     def set_env_states(self, states, env_idx: torch.Tensor):
         """Sets the state of the envs specified by env_idx"""
-
         if len(states.shape) == 2:
             dof_pos, dof_vel, dof_pos_target = (
                 states[:, :2],
@@ -359,88 +344,64 @@ class MazeBot(RRLTask):
         self.goal[:] = goals
 
     def q_to_goal(self, q):
-        goal = q[:2]
+        """ Extract goal position from q_state """
+        goal = q[:2]  # extract pos
         return goal
 
-    def sample_random_config(self, n_samples):
-        return self.sample_q(n_samples)
-
     def compute_distances_in_goal(self, rrt_states, goal=None):
+        """
+            Computes distance in goal state from a specific node to each node in node set.
+            If the goal is not specified, the goal state of the root node is used.
+        """
         node_pos = rrt_states[:, 0:2].view(-1, 2)  # extract pos
         goal_pos = node_pos[0].unsqueeze(0).repeat(len(node_pos), 1) if goal is None else goal
         distances = torch.linalg.norm(node_pos - goal_pos[:2], dim=1)
         return distances
 
     def compute_distance(self, node, node_set):
-        """ computes distance from node to each element in node set """
+        """ Computes distance from a specific node to each node in node set """
         # Position distance
         pos_dist = 1.0 * torch.linalg.norm(node_set[:, :2] - node[:2], dim=1)
         # Velocity distance
         vel_dist = 0.05 * torch.linalg.norm(node_set[:, 2:4] - node[2:4], dim=1)
+        # Compute the total distance
         dist = pos_dist + vel_dist
         return dist
 
-    # PRM methods
+
+    """ PRM methods """
 
     def check_collision(self, q_sample):
-        pass
+        """ Check collision of the sampled node with the environment """
+        pass  # collision check is done in the generate() function
 
-    def sample_initial_nodes(self, select_style="naive", num_init_nodes=32):
-        print("Debug: reset_state_buf shape: ", self.init_sampled_states.shape)
-        num_init_nodes = torch.tensor(list(range(num_init_nodes)))
-        if select_style == "naive":
-            buf_idx = torch.randint_like(num_init_nodes, len(self.init_sampled_states))
-            states = self.init_sampled_states[buf_idx]
-        elif select_style == "nearest":
-            q_sample = self.sample_q(len(num_init_nodes))
-            states = torch.zeros((len(num_init_nodes), 4), device=self.device)
-            for i in range(len(num_init_nodes)):
-                u = np.random.uniform()
-                if u > self.start_state_bias:
-                    dist = torch.linalg.norm(self.init_sampled_states[:, :2] - q_sample[i, :], dim=1)
-                    nearest_idx = int(torch.argmin(dist))
-                    nearest_state = self.init_sampled_states[nearest_idx]
-                    states[i] = nearest_state
-                else:
-                    states[i, 0], states[i, 1] = (
-                        self.dof_pos_start[0],
-                        self.dof_pos_start[1],
-                    )
-        return states
+    def sample_initial_nodes(self, num_init_nodes=32):
+        """ Sample initial nodes for the PRM algorithm """
+        init_states = generate(self.maze_object, num_init_nodes)
+        return to_torch(init_states, device=self.device)
 
     def sample_close_nodes(self, node_set):
-        sampled_nodes = []
+        """ Sample close nodes for the PRM algorithm """
+        # Sample random nodes from the environment
+        collision_free_states = to_torch(generate(self.maze_object, 1000), device=self.device)
+        # Collect nodes that are close to the nodes in the node set
+        collectd_nodes = []
         for node in node_set:
-            # random_idx = torch.randint(0, len(self.init_sampled_states), (1,)).item()
-            # sampled_nodes.append(self.init_sampled_states[random_idx][:2])
-            dist = self.compute_distances_in_goal(self.init_sampled_states, node)
+            dist = self.compute_distances_in_goal(collision_free_states, node)
             close_idx = torch.where(dist < 0.2)[0]
+            if len(close_idx) == 0:  # no close nodes found
+                continue
             # Randomly select one of the close nodes
             random_idx = close_idx[torch.randint(0, len(close_idx), (1,)).item()]
-            sampled_nodes.append(self.init_sampled_states[random_idx])
+            collectd_nodes.append(collision_free_states[random_idx])
 
-        return sampled_nodes
+        return collectd_nodes
 
 
-def states_from_path(path: np.ndarray, delta=0.01, device="cuda:0"):
-    delta = 0.01
-    states = []
-    for i in range(len(path) - 1):
-        wp1 = path[i + 1]
-        wp0 = path[i]
-        seglen = np.linalg.norm(wp1 - wp0)
-        num_states_seg = int(seglen / delta)
-        states.append([wp0[0], wp0[1], 0, 0])
-        for j in range(num_states_seg):
-            point = j * (wp1 - wp0) / num_states_seg + wp0
-            state = [point[0], point[1], 0, 0]
-            states.append(state)
-        states.append([wp1[0], wp1[1], 0, 0])
-    states = to_torch(states, device=device)
-    return states
-
+""" Helper functions """
 
 def draw_plus(gym, viewer, env, p, color="r"):
+    """ Draw the goal position as a red cross in the maze """
     cmap = {"r": [1, 0, 0], "g": [0, 1, 0], "b": [0, 0, 1]}
     c = cmap[color]
     gym.add_lines(viewer, env, 1, [p[0] - 0.01, p[1], 0.01, p[0] + 0.01, p[1], 0.01], c)

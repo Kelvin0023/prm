@@ -21,7 +21,7 @@ env:
     x: null
     y: null
   dof_vel_lim: 100
-  use_saved_reset_states: True
+  use_saved_reset_states: False
   saved_reset_states_file: ""
 
   maze_lvl0:
@@ -64,8 +64,8 @@ env:
 
   maze_c:
     dof_pos_lim:
-      x: [ -1.2,1.2 ] #x: [-0.9,0.9]
-      y: [ -1.2,1.2 ] #y: [-0.9,0.9]
+      x: [ -1.2,1.2 ]
+      y: [ -1.2,1.2 ]
     dof_pos_start: [0.0, 0.0]
     dof_pos_start_2: [0.8, 0.0]
     dof_pos_start_3: [-0.8, 0.0]

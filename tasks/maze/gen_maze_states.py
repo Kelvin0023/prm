@@ -69,8 +69,8 @@ class MazeLvl2V2(Maze):
         ]
 
 class MazeA(Maze):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, xrange=(-1.2, 1.2), yrange=(-1.2, 1.2)):
+        super().__init__(xrange=xrange, yrange=yrange)
 
         self.obstacles = [
             Box(0.7, 0.1, 0.6, 0.3),
@@ -84,8 +84,8 @@ class MazeA(Maze):
         ]
 
 class MazeB(Maze):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, xrange=(-0.9, 0.9), yrange=(-0.9, 0.9)):
+        super().__init__(xrange=xrange, yrange=yrange)
 
         self.obstacles = [
             Box(0.1, 0.8, -0.4, 0.0),
@@ -98,8 +98,8 @@ class MazeB(Maze):
 
 
 class MazeC(MazeB):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, xrange=(-1.2, 1.2), yrange=(-1.2, 1.2)):
+        super().__init__(xrange=xrange, yrange=yrange)
 
         self.obstacles.extend(
             [
@@ -130,17 +130,8 @@ def plot(states, pngfile):
 
 
 if __name__ == "__main__":
-    # maze = MazeLvl0()
-    # name = "maze_lvl0"
-
-    # maze = MazeLvl1V2()
-    # name = "maze_lvl1_v2"
-
-    # maze = MazeLvl2V2()
-    # name = "maze_lvl2_v2"
-
-    maze = MazeA()
-    name = "maze_a"
+    maze = MazeC()
+    name = "maze_c"
 
     npfile = "tasks/maze/assets/reset_states/{}.npy".format(name)
     pngfile = "tasks/maze/assets/reset_states/{}.png".format(name)
